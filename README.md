@@ -1,7 +1,7 @@
 
-# SAROS-I
+# SAROS-II
 
-Software for SAROS-I launch(es). Class B payloads are the only class of payloads in use for SAROS-I. 
+Software for SAROS-II boards. Only class B payloads are supported.
 
 ## Usage
 The following are pre-requisites for making this source code functional on the flight boards. 
