@@ -37,7 +37,7 @@ Some "ground modules" may read BLUE/RED/RED,  but indicators should always be re
 
 4:  S/O/F -BME Startup Failure <br>
 
-5:  F/S/O <br>
+5:  F/S/O -GPS Dynamic Model Set Failure<br>
 
 6:  O/S/F -GPS Startup Failure <br>
 
