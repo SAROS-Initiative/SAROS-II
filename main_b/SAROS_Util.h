@@ -1,8 +1,10 @@
+
+
 //////////////////
 //SAROS_Util
-//Version: 1.5
+//Version: 3.0 
 //Date: 09/15/2023
-//Supported Main: 2.X
+//Supported Main: 3.X
 //Author: Tristan McGinnis
 //Use: Contains supplementary functions and values used for SAROS payloads
 ///////////////////
@@ -15,10 +17,11 @@
 #include <Adafruit_Sensor.h> 
 #include <Adafruit_BNO055.h> 
 #include <utility/imumaths.h>
-#include "Zanshin_BME680.h"
-//#include "libraries/BME680/src/Zanshin_BME680.h"
-//#include "Adafruit_BME680.h"
-//#include "libraries/cus_bme680/BME680.h"
+
+#include <Adafruit_BMP3XX.h>
+#include <bmp3.h>
+#include <bmp3_defs.h>
+
 #include "ADS1X15.h"
 //#include <Adafruit_ADS1X15.h>
 #include "Adafruit_SHT4x.h" 
@@ -40,13 +43,13 @@ boolean threadFunc(int freq, unsigned long curTime , unsigned long *lastRun);
 String getBoardID();
 
 
-void setWire0(int pin_SCL, int pin_SDA)
+inline void setWire0(int pin_SCL, int pin_SDA)
 {
   Wire.setSDA(pin_SDA);
   Wire.setSCL(pin_SCL);
 }
 
-void setWire1(int pin_SCL, int pin_SDA)
+inline void setWire1(int pin_SCL, int pin_SDA)
 {
   Wire1.setSDA(pin_SDA);
   Wire1.setSCL(pin_SCL); 
@@ -224,13 +227,13 @@ void ledCode(int led1, int led2, int led3, int code) //Flash a specific LED code
 }
     
 
-void ledToggle(int led_pin) //Toggles LED from it's current status
+inline void ledToggle(int led_pin) //Toggles LED from it's current status
 {
   digitalWrite(led_pin, !digitalRead(led_pin));
 }
 
 
-void ledPulse(int led_pin,int blinkSpeed, unsigned long curTime , unsigned long *lastToggle)//Pulse LED at desired rate w/o hold
+inline void ledPulse(int led_pin,int blinkSpeed, unsigned long curTime , unsigned long *lastToggle)//Pulse LED at desired rate w/o hold
 {
   if(int(curTime - *lastToggle) >= blinkSpeed) //If it's time or past time to toggle
   {
@@ -252,7 +255,7 @@ void ledBlink(int led_pin, int speed, int count) //Blink led at desired speed, d
 }
 
 
-boolean threadFunc(int freq, unsigned long curTime , unsigned long *lastRun)
+inline boolean threadFunc(int freq, unsigned long curTime , unsigned long *lastRun)
 {
   if(int(curTime - *lastRun) >= freq) //If it's time or past time to run
   {

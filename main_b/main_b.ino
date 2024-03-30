@@ -1,9 +1,9 @@
 ///////////////////
-//SAROS_I_Class_B
-//Version: 2.6
-//Date: 10/08/2023
+//SAROS_II_Class_B
+//Version: 3.0
+//Date: 3/30/2024
 //Author: Tristan McGinnis
-//Use: Main source code for SAROS test board
+//Use: Main source code for SAROS II
 ///////////////////
 
 // Imports:
@@ -12,21 +12,23 @@
 // Debug settings
 #define debug 0 //Running in DEBUG mode? Main LEDS will indicate during loop
                 //GPS will periodically test for a lock every 30 seconds during main loop
-#define skipGPSLock 0 //Skip waiting for GPS lock?
+#define skipGPSLock 1 //Skip waiting for GPS lock?
 
 //Constants
 #define LED1 15
 #define LED2 14
 #define LED3 13
 #define LED0 25
+#define SEALEVELPRESSURE_HPA (1013.25)
 
 //Board Details
 String ID = "SX";
 
 //Packet Values
 String packet;
-int utc_hr, utc_min, utc_sec;
-int mis_hr, mis_min;
+char packet_buffer[200];
+uint8_t utc_hr, utc_min, utc_sec;
+uint8_t mis_hr, mis_min;
 double mis_time;
 long int packetCt = 0;
 int gp_sats;
@@ -35,9 +37,8 @@ int16_t pd1, pd2, pd3, pd4;
 long gp_lat, gp_lon, gp_alt;
 //static int32_t b_temp, b_humidity, b_press, b_gas;
 int32_t b_temp = 99;
-int32_t b_humidity = 99;
 int32_t b_press = 99;
-int32_t b_gas = 99;
+int32_t b_alt = 99;
 
 
 
@@ -47,19 +48,21 @@ Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28, &Wire1); // passed Wire into BNO
 double sea_level = 1013.25;
 //
 
-//BME680 Setup
-//Adafruit_BME680 bme = Adafruit_BME680(&Wire1);
-BME680_Class BME680;
-//Bme68x bme;//bme object for BOSH Bme6 library
+//BMP390 Setup
+
+Adafruit_BMP3XX bmp;
+
 
 //Humidity Sensor
 Adafruit_SHT4x sht4 = Adafruit_SHT4x(); //Humidity Sensor Setup
+sensors_event_t humidity_event, temp_event;
+//sensors_event_t humidity, temp;
 
 //GPS Setup
 SFE_UBLOX_GNSS gps; 
-int gpsLock = 0;
+uint8_t gpsLock = 0;
 int gpsLockAttempts = 0;
-int gpsFound = 0;
+uint8_t gpsFound = 0;
 //static const uint32_t GPSBaud = 38400;
 
 //ADC to I2C ADS1015
@@ -69,6 +72,9 @@ ADS1015 ADS(0x49, &Wire1);
 //Thermistor Things
 double R_T; //Calculation for Thermistor temperature value
 double t_temp; 
+
+
+
 
 
 //Timing Variables
@@ -91,7 +97,7 @@ int fileCt = 0;
 
 void setup() {
   //dataFile.close();
-  boolean setDynamicModel(dynModel newDynamicModel = DYN_MODEL_AIRBORNE4g, uint16_t maxWait = 1100);
+  //boolean setDynamicModel(dynModel newDynamicModel = DYN_MODEL_AIRBORNE4g, uint16_t maxWait = 1100);
   //uint8_t dynamicModelTest = getDynamicModel(uint16_t maxWait = 1100); // Get the dynamic model - returns 255 if the sendCommand fails
   
   Serial.begin(115200);//USB Interface
@@ -180,14 +186,21 @@ void setup() {
       gps.setI2COutput(COM_TYPE_UBX);
       gps.setNavigationFrequency(5);
       gps.setI2CpollingWait(250);
-
-      Serial.println("NEO-M9N\t[X]");
-
       gpsFound = 1;
+
+
+      if (gps.setDynamicModel(DYN_MODEL_AIRBORNE4g) == false){
+        //Serial.println(F("*** Warning: setDynamicModel failed ***"));
+        ledCode(LED1, LED2, LED3, 5);//CODE BGR Flashing/Stable/Off
+        Serial.println("NEO-M9N\t[X][ ]");
+        break;
+      }
+
+      Serial.println("NEO-M9N\t[X][X]");
       ledBlink(LED1, 100, 3);//Blink Blue for Success
       break;
     }
-    Serial.println("NEO-M9N\t[]");
+    Serial.println("NEO-M9N\t[ ][ ]");
     if(i == 10)//If not started after 10 seconds
     {
       ledCode(LED1, LED2, LED3, 6);//Code BGR Off/Stable/Flashing
@@ -208,24 +221,27 @@ void setup() {
   }
   
 
-  //BME680 Check
-  if(!BME680.begin(500000, 0))
+  //BMP390 Check
+  if(!bmp.begin_I2C(BMP3XX_DEFAULT_ADDRESS, &Wire1))
   {
-    Serial.println("BME680\t[ ]");
+    Serial.println("BMP390\t[ ]");
     ledCode(LED1, LED2, LED3, 4);//Code BGR Stable/Off/Flashing
   }else
   {
-    Serial.println("BME680\t[X]");
-    BME680.setOversampling(TemperatureSensor, Oversample16);  // Use enumerated type values
-    BME680.setOversampling(HumiditySensor, Oversample16);     // Use enumerated type values
-    BME680.setOversampling(PressureSensor, Oversample16);     // Use enumerated type values
-    BME680.setIIRFilter(IIR4);
-    BME680.setGas(0,0);
+    Serial.println("BMP390\t[X]");
+    bmp.setTemperatureOversampling(BMP3_OVERSAMPLING_8X);
+    bmp.setPressureOversampling(BMP3_OVERSAMPLING_4X);
+    bmp.setIIRFilterCoeff(BMP3_IIR_FILTER_COEFF_3);
+    bmp.setOutputDataRate(BMP3_ODR_50_HZ);
     
-    //Cycle BME to remove initial garbage data
+    //Cycle BMP to remove initial garbage data
     for(int i = 0; i < 5; i++)
     {
-      BME680.getSensorData(b_temp, b_humidity, b_press, b_gas);
+      bmp.performReading();
+      b_temp = bmp.temperature;
+      b_press = bmp.pressure / 100.0;
+      b_alt = bmp.readAltitude(SEALEVELPRESSURE_HPA);
+      
       Serial.println("CLEARING...");
       delay(100);
     }
@@ -312,6 +328,7 @@ void loop() {
 
   do//runs for 6 hours
   {
+    packetCt++;
 
     pd1 = ADS.readADC(0); //read photodiode 1
     pd2 = ADS.readADC(1); //read photodiode 2
@@ -325,28 +342,26 @@ void loop() {
     if(threadFunc(1000, millis() , &lastPoll))//Run large-format packet every 1000ms
     {
       ledToggle(25);
+      
+      bmp.performReading();
+      b_temp = bmp.readTemperature();
+      b_press = bmp.readPressure();
+      b_alt = bmp.readAltitude(SEALEVELPRESSURE_HPA);
+      
+      String bmp_data = String(b_temp)+","+String(b_press/100.0) + "," +String(b_alt);
 
-      packetCt++;
-      //bme.performReading();
-      BME680.getSensorData(b_temp, b_humidity, b_press, b_gas, false);
-      String bme_data = String(b_temp/100.0)+","+String(b_press/100.0) + "," +String(b_humidity);
 
-      if(gpsFound)
+      
+      if(gpsFound && debug && threadFunc(30000, millis(), &lastGPSLockCheck) )
       {
-        if(debug)
+        if(gps.getSIV() >=3)
         {
-          if(threadFunc(30000, millis(), &lastGPSLockCheck)) //Check if GPS is locked every 30 seconds
-          {
-            if(gps.getSIV() >=3)
-            {
-              gpsLock = 1;
-              digitalWrite(LED3, HIGH); //RED LED ON
-            }else
-            {
-              gpsLock = 0;
-              digitalWrite(LED3, LOW); //RED LED OFF
-            }
-          }
+          gpsLock = 1;
+          digitalWrite(LED3, HIGH); //RED LED ON
+        }else
+        {
+          gpsLock = 0;
+          digitalWrite(LED3, LOW); //RED LED OFF
         }
 
         gp_lat = gps.getLatitude();
@@ -358,33 +373,56 @@ void loop() {
         utc_sec = gps.getSecond();
       }
       
-      sensors_event_t humidity, temp;
-      sht4.getEvent(&humidity, &temp);
-      double rel_humidity = humidity.relative_humidity;
+      
+      sht4.getEvent(&humidity_event, &temp_event);
+      double rel_humidity = humidity_event.relative_humidity;
 
 
-      //Large-Format 4hz packet
-      packet = ID + "," + String(packetCt) + "," + String(mis_time) + "," + String(pd1)+","+String(pd2) + "," + String(pd3) +","+ String(pd4) +",";
+      //Large-Format 1Hz Packet
+      int len = snprintf(packet_buffer, sizeof(packet_buffer), "%s,%d,%.2f,%d,%d,%d,%d,%.2f,%d:%d:%d,%ld,%ld,%d,%ld,%s,%.2f,%s,%s,%s,%s",
+                        ID.c_str(), packetCt, mis_time, pd1, pd2, pd3, pd4, t_temp,
+                        utc_hr, utc_min, utc_sec, gp_lat, gp_lon, gp_sats, gp_alt,
+                        bmp_data.c_str(), rel_humidity, readBno(bno, 1).c_str(), readBno(bno, 2).c_str(), readBno(bno, 3).c_str(), readBno(bno, 4).c_str());
+
+      // Ensure the length of the packet does not exceed the buffer size
+      if (len < sizeof(packet_buffer)) {
+        packet_buffer[len] = '\0'; // Null-terminate the string
+        packet = packet_buffer; // Assign the buffer to the packet variable
+      } 
+
+/*
       packet += String(t_temp) + "," + String(utc_hr) + ":" + String(utc_min) + ":" + String(utc_sec) + ",";
       packet += String(gp_lat)+","+String(gp_lon)+","+String(gp_sats)+","+String(gp_alt)+",";
-      packet += String(bme_data)+","+String(rel_humidity)+",";
+      packet += String(bmp_data)+","+String(rel_humidity)+",";
       packet += readBno(bno, 1) +","+readBno(bno, 2)+","+readBno(bno, 3)+","+readBno(bno, 4);
-      Serial.println(packet);
+*/
+      //Serial.println(packet); //Optimization removal
+      Serial.println(packet_buffer);
       dataFile.println(packet);
       dataFile.flush();
 
       mis_time = millis()/1000.0; //get mission time (system clock time)
-    }else if(threadFunc(1, millis(), &lastShort)) //run high-freq no more than 1khz
-    {
+      Serial.println(packetCt);
+    }
+    //else if(threadFunc(1, millis(), &lastShort)) //run high-freq no more than 1khz
+    else{
 
-      packetCt++;
-      packet = String(ID)+","+String(packetCt)+","+ String(mis_time) +","+String(pd1)+","+String(pd2) + "," + String(pd3)+ ","+String(pd4)+"," + String(t_temp) + ",,,,,,,,,,,,,,,,,,,,,";
-      //Serial.println(packet);
+      
+      //packet = String(ID)+","+String(packetCt)+","+ String(mis_time) +","+String(pd1)+","+String(pd2) + "," + String(pd3)+ ","+String(pd4)+"," + String(t_temp) + ",,,,,,,,,,,,,,,,,,,,,";
+      
+      int len = snprintf(packet_buffer, sizeof(packet_buffer), "%s,%d,%.2f,%d,%d,%d,%d,%.2f,,,,,,,,,,,,,,,,,,,,,",
+                        ID.c_str(), packetCt, mis_time, pd1, pd2, pd3, pd4, t_temp);
+
+      // Ensure the length of the packet does not exceed the buffer size
+      if (len < sizeof(packet_buffer)) {
+        packet_buffer[len] = '\0'; // Null-terminate the string
+        packet = packet_buffer; // Assign the buffer to the packet variable
+      } 
+
       dataFile.println(packet);
-      //dataFile.flush();
-      ///Serial.println(String(packetCt));
-      lastShort = millis();
 
+      //lastShort = millis();
+      delay(1);//No faster than 1 ms? 
     }
     //test_fin = millis() - test_start;
     //Serial.println(test_fin);
