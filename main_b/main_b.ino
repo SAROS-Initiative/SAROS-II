@@ -1,6 +1,6 @@
 ///////////////////
 //SAROS_II_Class_B
-//Version: 3.1
+//Version: 3.2
 //Date: 4/3/2024
 //Author: Tristan McGinnis
 //Use: Main source code for SAROS II
@@ -294,7 +294,7 @@ void setup() {
 
   if(gpsFound && !skipGPSLock)
   {
-    for(int j = 0; j < 50; j++)//Try for ~2.5 minutes (total of 3 second delay per attempt)
+    for(int j = 0; j < 70; j++)//Try for ~3.5 minutes (total of 3 second delay per attempt)
     {
       if(gps.getSIV() >= 3)
       {
@@ -364,7 +364,7 @@ void loop() {
       if(gpsFound)
       {
         Serial.printf("GPS GETSIV %d\n", millis());//Debug timing print
-        if(gps.getSIV(siv_wait) >=3)
+        if(!gpsLock && gps.getSIV() >=3)
         {
           gpsLock = 1;
           //digitalWrite(LED3, HIGH); //RED LED ON
