@@ -1,7 +1,7 @@
 ///////////////////
 //SAROS_II_Class_B
-//Version: 3.0
-//Date: 3/30/2024
+//Version: 3.1
+//Date: 4/3/2024
 //Author: Tristan McGinnis
 //Use: Main source code for SAROS II
 ///////////////////
@@ -12,7 +12,7 @@
 // Debug settings
 #define debug 0 //Running in DEBUG mode? Main LEDS will indicate during loop
                 //GPS will periodically test for a lock every 30 seconds during main loop
-#define skipGPSLock 1 //Skip waiting for GPS lock?
+#define skipGPSLock 0 //Skip waiting for GPS lock?
 
 //Constants
 #define LED1 15
@@ -40,6 +40,7 @@ int32_t b_temp = 99;
 int32_t b_press = 99;
 int32_t b_alt = 99;
 
+uint8_t siv_wait = 75;
 
 
 //BNO Setup
@@ -80,7 +81,6 @@ double t_temp;
 //Timing Variables
 unsigned long lastPoll = 0; //Last time polling major sensors
 unsigned long lastShort = 0; //last time polling PDs only
-unsigned long lastGPSLockCheck = 0;
 
 
 //Used for SPI SD Logger
@@ -198,6 +198,8 @@ void setup() {
 
       Serial.println("NEO-M9N\t[X][X]");
       ledBlink(LED1, 100, 3);//Blink Blue for Success
+
+    gps.saveConfiguration(); //Save the current settings to flash and BBR
       break;
     }
     Serial.println("NEO-M9N\t[ ][ ]");
@@ -292,7 +294,7 @@ void setup() {
 
   if(gpsFound && !skipGPSLock)
   {
-    for(int j = 0; j < 80; j++)//Try for ~4 minutes (total of 3 second delay per attempt)
+    for(int j = 0; j < 50; j++)//Try for ~2.5 minutes (total of 3 second delay per attempt)
     {
       if(gps.getSIV() >= 3)
       {
@@ -322,12 +324,14 @@ void setup() {
 //Main Loop Start
 /////////////
 void loop() {
+  
 
   String fName = String(ID)+"_data_out_" + String(fileCt)+".txt"; //File name chosen based on last created file
   File dataFile = SD.open(fName, FILE_WRITE); //Open data output file
 
   do//runs for 6 hours
   {
+    //Serial.printf("LOOP DO: %d\n", millis());//Debug timing print
     packetCt++;
 
     pd1 = ADS.readADC(0); //read photodiode 1
@@ -335,12 +339,17 @@ void loop() {
     pd3 = ADS.readADC(2); //read photodiode 3
     pd4 = ADS.readADC(3); //read photodiode 4
 
+    //Serial.printf("PD READ: %d\n", millis());//Debug timing print
 
     R_T = log((((10*1000) * pow(2,10)) / analogRead(26)) - (10*1000)); //Calculation for Thermistor temperature value
     t_temp = 0.0085*pow(R_T, 4) - 0.4359*pow(R_T, 3) + 9.233*pow(R_T, 2) - 108.53*R_T + 520.59;
 
+    //Serial.printf("TEMP CALC'D: %d\n", millis());//Debug timing print
+
     if(threadFunc(1000, millis() , &lastPoll))//Run large-format packet every 1000ms
     {
+      //Serial.printf("LARGE FORM: %d\n", millis());//Debug timing print
+
       ledToggle(25);
       
       bmp.performReading();
@@ -351,19 +360,21 @@ void loop() {
       String bmp_data = String(b_temp)+","+String(b_press/100.0) + "," +String(b_alt);
 
 
-      
-      if(gpsFound && debug && threadFunc(30000, millis(), &lastGPSLockCheck) )
+      Serial.printf("GPS START: %d\n", millis());//Debug timing print
+      if(gpsFound)
       {
-        if(gps.getSIV() >=3)
+        Serial.printf("GPS GETSIV %d\n", millis());//Debug timing print
+        if(gps.getSIV(siv_wait) >=3)
         {
           gpsLock = 1;
-          digitalWrite(LED3, HIGH); //RED LED ON
+          //digitalWrite(LED3, HIGH); //RED LED ON
         }else
         {
           gpsLock = 0;
-          digitalWrite(LED3, LOW); //RED LED OFF
+          //digitalWrite(LED3, LOW); //RED LED OFF
         }
 
+        Serial.printf("GPS GETDATA %d\n", millis());//Debug timing print
         gp_lat = gps.getLatitude();
         gp_lon = gps.getLongitude();
         //gp_sats = gps.getSIV();
@@ -371,18 +382,22 @@ void loop() {
         utc_hr = gps.getHour();
         utc_min = gps.getMinute();
         utc_sec = gps.getSecond();
+
       }
-      
+      Serial.printf("GPS END: %d\n", millis());//Debug timing print
       
       sht4.getEvent(&humidity_event, &temp_event);
       double rel_humidity = humidity_event.relative_humidity;
 
 
+      //Serial.printf("LG PACKET CREATE: %d\n", millis());//Debug timing print
       //Large-Format 1Hz Packet
       int len = snprintf(packet_buffer, sizeof(packet_buffer), "%s,%d,%.2f,%d,%d,%d,%d,%.2f,%d:%d:%d,%ld,%ld,%d,%ld,%s,%.2f,%s,%s,%s,%s",
                         ID.c_str(), packetCt, mis_time, pd1, pd2, pd3, pd4, t_temp,
                         utc_hr, utc_min, utc_sec, gp_lat, gp_lon, gp_sats, gp_alt,
                         bmp_data.c_str(), rel_humidity, readBno(bno, 1).c_str(), readBno(bno, 2).c_str(), readBno(bno, 3).c_str(), readBno(bno, 4).c_str());
+
+      //Serial.printf("LG PACKET DONE: %d\n", millis());//Debug timing print
 
       // Ensure the length of the packet does not exceed the buffer size
       if (len < sizeof(packet_buffer)) {
@@ -400,9 +415,11 @@ void loop() {
       Serial.println(packet_buffer);
       dataFile.println(packet);
       dataFile.flush();
-
+      
       mis_time = millis()/1000.0; //get mission time (system clock time)
-      Serial.println(packetCt);
+      //Serial.println(packetCt);
+
+      //Serial.printf("DO END: %d\n", millis());//Debug timing print
     }
     //else if(threadFunc(1, millis(), &lastShort)) //run high-freq no more than 1khz
     else{
@@ -427,6 +444,7 @@ void loop() {
     //test_fin = millis() - test_start;
     //Serial.println(test_fin);
   }while(mis_time <= 21600);//Run for 6 hours maximum
+
 
 }// Main loop end
 
